@@ -1,4 +1,5 @@
 import sqlite3 as sq
+
 async def db_start():
     global db, cur #db - экземпляр (модель) базы данных \\\ cur - чтобы выполнять операции с базой данных
     db = sq.connect('new.db')
@@ -15,5 +16,11 @@ async def create_profile(user_id):
 
 async def edit_profile(state, user_id):
     async with state.proxy() as data:
-        cur.execute("UPDATE profile SET photo = '{}', name = '{}', age = '{}', location = '{}', description = '{}'".format(data['photo'], data['name'], data['age'], data['location'], data['description'], user_id))
+        cur.execute("UPDATE profile SET photo = '{}', name = '{}', age = '{}', location = '{}', description = '{}' WHERE user_id == '{}'".format(
+            data['photo'], data['name'], data['age'], data['location'], data['description'], user_id))
         db.commit()
+
+async def look_profile(user_id):
+    profile = cur.execute("SELECT * FROM profile").fetchall() #выводим все данные из таблицы profile т.е каждый пользователь это будет кортеж
+    print(profile)
+    return profile  # list
