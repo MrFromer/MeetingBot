@@ -5,10 +5,11 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
 import re
-from database import db_start, create_profile, edit_profile, look_profile
-from keyboards import kb, kb_cancel
+from database import db_start, create_profile, save_profile, look_profile, delete_profile, edit_profile_photo_db, edit_profile_name_db, edit_profile_age_db, edit_profile_location_db, edit_profile_description_db
+from keyboards import kb, kb_cancel, ikb_edit, kb_return
+import tracemalloc
 
-
+tracemalloc.start()
 storage = MemoryStorage() #хранилище для манины состояния FSM
 bot = Bot(TOKEN_API)
 dp  = Dispatcher(bot, storage=storage)
@@ -25,8 +26,9 @@ TEXT_START = '''
 <b>/start</b> - вводная информация
 <b>/create</b> - создать профиль пользователя
 <b>/cancel</b> - отменить создание профиля
-<b>/editprofile</b> - редактировать существующий профиль
-<b>/deleteprofile</b> - удалить профиль
+<b>/edit</b> - редактировать существующий профиль
+<b>/delete</b> - удалить профиль
+<b>/profile</b> - посмотреть профиль
 <b>/description</b> - описание бота и его возможностей
 '''
 
@@ -64,11 +66,46 @@ async def watch_profile(message: types.Message):
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
     elif k == 1:
         await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
- 
+
+#тоже самое только через комманду
+@dp.message_handler(commands=['profile'])
+async def watch_profile(message: types.Message):
+    profiles = await look_profile(message.from_user.id)
+    k = 0
+    # if not profile:
+    #     await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
+    # else:
+    #     await bot.send_photo(chat_id=message.from_user.id,)
+    for profile in profiles:
+        if int(profile[0]) == int(message.from_user.id):
+            k = 1
+            break
+    if k == 0:
+        await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
+    elif k == 1:
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')    
 
 
+#удаление текущего профиля
+@dp.message_handler(text='Удалить профиль')
+async def delet_profile(message: types.Message):
+    data = await delete_profile(message.from_user.id)
+    if data == 0:
+        await message.reply('Вы ещё не создали профиль, для этого напишите /create')
+    else:
+        await delete_profile(message.from_user.id) #ф-ция из файла database для удаления профиля 
+        await message.reply('Ваш профиль был удалён, если вы хотите создать его заного нажмита на /create')
 
-
+#тоже самое, только через комманду
+@dp.message_handler(commands=['delete'])
+async def delet_profile(message: types.Message):
+    data = await delete_profile(message.from_user.id)
+    if data == 0:
+        await message.reply('Вы ещё не создали профиль, для этого напишите /create')
+    else:
+        await delete_profile(message.from_user.id) #ф-ция из файла database для удаления профиля 
+        await message.reply('Ваш профиль был удалён, если вы хотите создать его заного нажмита на /create')
+    
 
 ################################################################################################### блок поэтапного заполнения профиля
 #прописываем поэтапные дейстия по созданию профиля (этапы представлены в классе ниже), так-же есть ф-ция отмены создания через комманду /cancel
@@ -102,7 +139,8 @@ async def command_create(message: types.Message) -> None:
     await create_profile(user_id=message.from_user.id) #вызываем ф-цию для создания профиля в базе данных
     await message.reply(text='Вы начали создавать анкету! Для начала пришлите своё фото', reply_markup=kb_cancel)
     await Profile.photo.set() #обращаемся к классу Profile и ставим состояние на 'photo'
-#такая-же что и выше тольк принимает комманду на вход
+
+#такая-же что и выше только принимает комманду на вход
 @dp.message_handler(commands=['create'])
 async def command_create(message: types.Message) -> None:
     await create_profile(user_id=message.from_user.id) #вызываем ф-цию для создания профиля в базе данных
@@ -169,15 +207,160 @@ async def load_location(message: types.Message, state:FSMContext):
 async def load_location(message: types.Message, state:FSMContext):
     async with state.proxy() as data:
         data['description'] = message.text
-        await bot.send_photo(chat_id=message.from_user.id, photo = data['photo'], caption=f"Ваша анкета: {data['name']}, {data['age']}, {data['location']}\n{data['description']}")   
+        await bot.send_photo(chat_id=message.from_user.id, photo = data['photo'], caption=f"Ваша анкета: Имя: {data['name']}, Возраст: {data['age']}, Локация: {data['location']}\nОписание: {data['description']}")   
 
-    await edit_profile(state, user_id=message.from_user.id) #сохраняем данные в бд
+    await save_profile(state, user_id=message.from_user.id) #сохраняем данные в бд
     await message.reply(text='На этом всё, вы успешно создали анкету! Если вы что-то хотите в ней поменять, то у вас всегда есть такая возможность написав комманду /editprofile',reply_markup=kb)
     await state.finish()
 
-###############################################################
 
 
+
+###############################################################   блок изменения профиля
+@dp.message_handler(commands=['edit'])
+async def call_edit_profile(message: types.Message):
+    profiles = await look_profile(message.from_user.id)
+    k = 0
+    for profile in profiles:
+        if int(profile[0]) == int(message.from_user.id):
+            k = 1
+            break
+    if k == 0:
+        await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
+    elif k == 1:
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1],  caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
+        await message.reply(text='Вот ваша анкета, что конкретно вы хотите изменить? Выберите из меню ниже:',reply_markup=ikb_edit)
+#тоже самое, только через текст
+@dp.message_handler(text='Редактировать профиль')
+async def call_edit_profile(message: types.Message):
+    profiles = await look_profile(message.from_user.id)
+    k = 0
+    for profile in profiles:
+        if int(profile[0]) == int(message.from_user.id):
+            k = 1
+            break
+    if k == 0:
+        await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
+    elif k == 1:
+        await bot.send_photo(chat_id=message.from_user.id, reply_markup=kb_return, photo=profile[1],  caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
+        await message.reply(text='Вот ваша анкета, что конкретно вы хотите изменить? Выберите из меню ниже:',reply_markup=ikb_edit)
+
+#ф-ция для возврата в главное меню
+@dp.message_handler(text='Вернуться в главное меню')
+async def go_to_main_menu(message: types.Message):
+    await message.answer(text='Вы вернулись в главное меню!',reply_markup=kb)
+
+#прописываю практически тоже самое что и в создании (т.е поэтапное создание), но с делаю под функционал изменения профиля
+class Profile_edit(StatesGroup): #объекты с состояниями для FSM (машины состояний)
+    photo = State()
+    name = State()
+    age = State()
+    location = State()
+    desc = State()
+
+#если пользователь хочет изменить фото
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_photo')
+async def edit_profile_photo(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите своё фото')
+    await Profile_edit.photo.set()
+
+#проверка на то, что пользователь отправил фото
+@dp.message_handler(lambda message: not message.photo, state=Profile_edit.photo) #проверка на то, что пользователь прислал фото (когда состояние равно 'photo')
+async def ckeck_photo_edit(message: types.Message):
+    await message.reply('Это не фотография!')
+
+#загрузка фото во временное хранилище (словарь) data
+@dp.message_handler(content_types=['photo'], state=Profile_edit.photo) #state=Profile.photo - это проверка что мы сейчас находимся в состоянии ожидания photo
+async def load_photo_edit(message: types.Message, state: FSMContext) -> None:
+    async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
+        data_edit['photo'] = message.photo[0].file_id #во временное хранилище под индификатором photo сохраняем id фотографии, которую отправил пользователь
+
+    await edit_profile_photo_db(state, message.from_user.id)
+    await message.reply(text='Мы сохранили вашу фотографию, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
+    await state.finish()
+
+#если пользователь хочет изменить имя
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_name')
+async def edit_profile_name(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите новое имя')
+    await Profile_edit.name.set()
+
+#проверка на текст
+@dp.message_handler(lambda message: not message.text.isalpha(), state=Profile_edit.name)  #isalpha() - проверка на то, что в "text" пользователь ввёл данные в формате текста (т.е не символы и цифры) и в это время бот находится в состоянии ожидания имени
+async def check_name_edit(message: types.Message):
+    await message.reply('Введите имя без цифр и символов!')
+
+#загрузка имени во временное хранилище (словарь) data_edit и потом сразу в базу данных
+@dp.message_handler(state=Profile_edit.name) 
+async def load_name_edit(message: types.Message, state: FSMContext) -> None:
+    async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
+        data_edit['name'] = message.text 
+
+    await edit_profile_name_db(state, message.from_user.id)
+    await message.reply(text='Мы сохранили новое имя, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
+    await state.finish()
+
+
+#если пользователь хочет изменить возраст
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_age')
+async def edit_profile_age(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите свой возраст')
+    await Profile_edit.age.set()
+
+#проверка на число и диапазон 7-100
+@dp.message_handler(lambda message: not message.text.isdigit() or float(message.text) > 100 or float(message.text) < 7, state=Profile_edit.age)
+async def ckeck_age_edit(message: types.Message):
+    await message.reply('Напишите свой реальный возраст!')
+
+#загрузка возраст во временное хранилище (словарь) data_edit и потом сразу в базу данных
+@dp.message_handler(state=Profile_edit.age) 
+async def load_age_edit(message: types.Message, state: FSMContext) -> None:
+    async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
+        data_edit['age'] = message.text 
+
+    await edit_profile_age_db(state, message.from_user.id)
+    await message.reply(text='Мы сохранили ваш возраст, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
+    await state.finish()
+
+
+#если пользователь хочет изменить локацию
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_location')
+async def edit_profile_location(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите свою локацию в формате: "Страна,Город"')
+    await Profile_edit.location.set()
+
+#проверка на маску "Страна,Город"
+@dp.message_handler(lambda message: not bool(re.match('[А-я]+\,+[А-я]', str(message.text))), state=Profile.location) #через регулярные выражения тут записано условие: что пользователь вводит сначала текст из заглавных и маленьких, потом сразу запятая и потом опять текст т.е формат "Страна,Город"
+#@dp.message_handler(lambda message: (',' in message.text) and (not message.text.isdigit()), state=Profile.location)
+async def ckeck_location_edit(message: types.Message):
+    await message.reply('Напишите свою локацию в формате: "Страна,Город" (строго, как в примере Пример: Россия,Москва)')
+
+#загрузка локации во временное хранилище (словарь) data_edit и потом сразу в базу данных
+@dp.message_handler(state=Profile_edit.location) 
+async def load_location_edit(message: types.Message, state: FSMContext) -> None:
+    async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
+        data_edit['location'] = message.text 
+
+    await edit_profile_location_db(state, message.from_user.id)
+    await message.reply(text='Мы сохранили вашу новую локацию, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
+    await state.finish()
+
+
+#если пользователь хочет изменить описание
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_description')
+async def edit_profile_description(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите новое описание!')
+    await Profile_edit.desc.set()
+
+#загрузка описание во временное хранилище (словарь) data_edit и потом сразу в базу данных
+@dp.message_handler(state=Profile_edit.desc) 
+async def load_location_edit(message: types.Message, state: FSMContext) -> None:
+    async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
+        data_edit['description'] = message.text 
+
+    await edit_profile_description_db(state, message.from_user.id)
+    await message.reply(text='Мы сохранили новое описание, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
+    await state.finish()
 
 if __name__ == '__main__':
     executor.start_polling(dispatcher=dp, skip_updates=True, on_startup=startup)
