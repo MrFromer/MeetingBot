@@ -3,7 +3,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 #основная клавиатура (главная)
 kb = ReplyKeyboardMarkup(resize_keyboard=True,one_time_keyboard=True, keyboard=[
     [KeyboardButton(text='Создать профиль'), KeyboardButton(text='Редактировать профиль')],
-    [KeyboardButton(text='Посмотреть профиль'), KeyboardButton(text='Удалить профиль')]
+    [KeyboardButton(text='Просмотреть свой профиль'), KeyboardButton(text='Удалить профиль')],
+    [KeyboardButton(text='Смотреть анкеты')]
 ])
 
 #побочная клавиатуры (для возврата в меню или отмены создания профиля)
@@ -19,4 +20,8 @@ ikb_edit = InlineKeyboardMarkup(inline_keyboard=[
 
 kb_return = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
     [KeyboardButton(text='Вернуться в главное меню')]
+])
+
+ikb_look = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Написать', callback_data='like'), InlineKeyboardButton(text='Следующий', callback_data='dislike')]
 ])

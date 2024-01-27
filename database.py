@@ -4,21 +4,20 @@ async def db_start():
     global db, cur #db - экземпляр (модель) базы данных \\\ cur - чтобы выполнять операции с базой данных
     db = sq.connect('new.db')
     cur = db.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS profile(user_id TEXT PRIMARY KEY, photo TEXT, name TEXT, age TEXT, location TEXT, description TEXT)") #тут мы создали саму таблицу и указали для неё поля с типами данных
+    cur.execute("CREATE TABLE IF NOT EXISTS profile(user_id TEXT PRIMARY KEY, photo TEXT, name TEXT, age TEXT, location TEXT, description TEXT, viewed_profiles TEXT)") #тут мы создали саму таблицу и указали для неё поля с типами данных
     #user_id будет уникальным, в photo мы храним индефикатор фото
     db.commit()
 
 async def create_profile(user_id):
     user = cur.execute("SELECT 1 FROM profile WHERE user_id == '{key}'".format(key=user_id)).fetchone() #если пользователь существует, то мы берём копируем его через fetchone. Через key мы проверяем, что это наш пользователь предварительно записав через format из user_id
-    print(user)
     if not user: #если пользователь не существует
-        cur.execute("INSERT INTO profile VALUES(?, ?, ?, ?, ?, ?)", (user_id, '', '', '', '', ''))
+        cur.execute("INSERT INTO profile VALUES(?, ?, ?, ?, ?, ?, ?)", (user_id, '', '', '', '', '', ''))
         db.commit()
 
 async def save_profile(state, user_id):
     async with state.proxy() as data:
-        cur.execute("UPDATE profile SET photo = '{}', name = '{}', age = '{}', location = '{}', description = '{}' WHERE user_id == '{}'".format(
-            data['photo'], data['name'], data['age'], data['location'], data['description'], user_id))
+        cur.execute("UPDATE profile SET photo = '{}', name = '{}', age = '{}', location = '{}', description = '{}', viewed_profiles = '{}' WHERE user_id == '{}'".format(
+            data['photo'], data['name'], data['age'], data['location'], data['description'], data['viewed_profiles'], user_id))
         db.commit()
 
 async def look_profile(user_id):
@@ -58,4 +57,9 @@ async def edit_profile_location_db(state, user_id):
 async def edit_profile_description_db(state, user_id):
     async with state.proxy() as data_edit:
         cur.execute("UPDATE profile SET description = '{}' WHERE user_id=='{}'".format(data_edit['description'],user_id))
+        db.commit()
+
+async def update_log_look(state, user_id):
+    async with state.proxy() as data_look:
+        cur.execute("UPDATE profile SET viewed_profiles = '{}' WHERE user_id=='{}'".format(data_look['viewed_profiles'],user_id))
         db.commit()

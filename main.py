@@ -5,8 +5,8 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
 import re
-from database import db_start, create_profile, save_profile, look_profile, delete_profile, edit_profile_photo_db, edit_profile_name_db, edit_profile_age_db, edit_profile_location_db, edit_profile_description_db
-from keyboards import kb, kb_cancel, ikb_edit, kb_return
+from database import db_start, create_profile, save_profile, look_profile, delete_profile, edit_profile_photo_db, edit_profile_name_db, edit_profile_age_db, edit_profile_location_db, edit_profile_description_db, update_log_look
+from keyboards import kb, kb_cancel, ikb_edit, kb_return, ikb_look
 import tracemalloc
 
 tracemalloc.start()
@@ -30,6 +30,7 @@ TEXT_START = '''
 <b>/delete</b> - удалить профиль
 <b>/profile</b> - посмотреть профиль
 <b>/description</b> - описание бота и его возможностей
+<b>/return</b> - вернуться в главное меню
 '''
 
 @dp.message_handler(commands=['start'])
@@ -50,7 +51,7 @@ async def command_start(message: types.Message):
     
 ################################################################################################### блок взаимодействия пользователя со своим профилем 
 #вывод текущего профиля пользователя (НУЖНО ДОРАБОТАТЬ ПРОВЕРКУ ID т.е что у определённого пользователя есть профиль)
-@dp.message_handler(text='Посмотреть профиль')
+@dp.message_handler(text='Просмотреть свой профиль')
 async def watch_profile(message: types.Message):
     profiles = await look_profile(message.from_user.id)
     k = 0
@@ -65,7 +66,7 @@ async def watch_profile(message: types.Message):
     if k == 0:
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
     elif k == 1:
-        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')
 
 #тоже самое только через комманду
 @dp.message_handler(commands=['profile'])
@@ -83,7 +84,7 @@ async def watch_profile(message: types.Message):
     if k == 0:
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
     elif k == 1:
-        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')    
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')    
 
 
 #удаление текущего профиля
@@ -207,7 +208,8 @@ async def load_location(message: types.Message, state:FSMContext):
 async def load_location(message: types.Message, state:FSMContext):
     async with state.proxy() as data:
         data['description'] = message.text
-        await bot.send_photo(chat_id=message.from_user.id, photo = data['photo'], caption=f"Ваша анкета: Имя: {data['name']}, Возраст: {data['age']}, Локация: {data['location']}\nОписание: {data['description']}")   
+        data['viewed_profiles'] = str(message.from_user.id)
+        await bot.send_photo(chat_id=message.from_user.id, photo = data['photo'], caption=f"Ваша анкета --> Имя: {data['name']}; Возраст: {data['age']}; Локация: {data['location']};\nОписание: {data['description']};")   
 
     await save_profile(state, user_id=message.from_user.id) #сохраняем данные в бд
     await message.reply(text='На этом всё, вы успешно создали анкету! Если вы что-то хотите в ней поменять, то у вас всегда есть такая возможность написав комманду /editprofile',reply_markup=kb)
@@ -228,29 +230,34 @@ async def call_edit_profile(message: types.Message):
     if k == 0:
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
     elif k == 1:
-        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1],  caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')
         await message.reply(text='Вот ваша анкета, что конкретно вы хотите изменить? Выберите из меню ниже:',reply_markup=ikb_edit)
 #тоже самое, только через текст
 @dp.message_handler(text='Редактировать профиль')
 async def call_edit_profile(message: types.Message):
-    profiles = await look_profile(message.from_user.id)
+    profiles = await look_profile(message.from_user.id) #принимаем кортеж с профилями
     k = 0
-    for profile in profiles:
+    for profile in profiles: #через цикл пробегаемся по профилям и ищем нужный индификатор пользователя
         if int(profile[0]) == int(message.from_user.id):
             k = 1
             break
-    if k == 0:
+    if k == 0: #если пользователя в БД нет
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
-    elif k == 1:
-        await bot.send_photo(chat_id=message.from_user.id, reply_markup=kb_return, photo=profile[1],  caption=f'Имя:{profile[2]} Возраст:{profile[3]} Локация:{profile[4]}, Описание профиля:{profile[5]}')
+    elif k == 1: #если пользователя в БД есть
+        await bot.send_photo(chat_id=message.from_user.id, reply_markup=kb_return, photo=profile[1],  caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')
         await message.reply(text='Вот ваша анкета, что конкретно вы хотите изменить? Выберите из меню ниже:',reply_markup=ikb_edit)
 
 #ф-ция для возврата в главное меню
-@dp.message_handler(text='Вернуться в главное меню')
+@dp.message_handler(text='Вернуться в главное меню') #функция будет работать в любом состоянии
 async def go_to_main_menu(message: types.Message):
     await message.answer(text='Вы вернулись в главное меню!',reply_markup=kb)
 
-#прописываю практически тоже самое что и в создании (т.е поэтапное создание), но с делаю под функционал изменения профиля
+#ф-ция для возврата в главное меню через комманду
+@dp.message_handler(commands=['return'])
+async def go_to_main_menu_cmd(message: types.Message):
+    await message.answer(text='Вы вернулись в главное меню!',reply_markup=kb)
+
+#прописываю практически тоже самое что и в создании (т.е поэтапное создание), но сделано под функционал изменения профиля т.е на каждом этапе отправляем данные в БД и для каждой кнопки в "database" написана функция (в этом основное отличие) 
 class Profile_edit(StatesGroup): #объекты с состояниями для FSM (машины состояний)
     photo = State()
     name = State()
@@ -352,7 +359,7 @@ async def edit_profile_description(callback: types.CallbackQuery):
     await bot.send_message(chat_id=callback.from_user.id, text='Хорошо, пришлите новое описание!')
     await Profile_edit.desc.set()
 
-#загрузка описание во временное хранилище (словарь) data_edit и потом сразу в базу данных
+#загрузка описания во временное хранилище (словарь) data_edit и потом сразу в базу данных
 @dp.message_handler(state=Profile_edit.desc) 
 async def load_location_edit(message: types.Message, state: FSMContext) -> None:
     async with state.proxy() as data_edit: #data_edit - временное хранилище для данных, которые мы сразу перенаправим в БД
@@ -362,5 +369,47 @@ async def load_location_edit(message: types.Message, state: FSMContext) -> None:
     await message.reply(text='Мы сохранили новое описание, если хотите изменить что-то ещё - выберите ниже:', reply_markup=ikb_edit)
     await state.finish()
 
+
+
+############################################################################### блок для взаимодействия и просмотра чужих анкет
+#class Look(StatesGroup):
+    
+#ф-ция для получения текущих ID других пользователей (это текст, который преобразуем в список), которые уже просмотрены данным пользователем    
+# async def give_viewed_profiles(message: types.Message):
+#     profiles = await look_profile(message.from_user.id) #принимаем кортеж с профилями
+#     for profile in profiles: #через цикл пробегаемся по профилям и ищем нужный индификатор пользователя
+#         if int(profile[0]) == int(message.from_user.id):
+#             print(list(profile[5]))
+#             return list(profile[5])
+#     else:
+#         return []
+            
+
+@dp.message_handler(text='Смотреть анкеты')
+async def look_anketi(message: types.Message, state: FSMContext):
+    profiles = await look_profile(message.from_user.id)
+    for profile in profiles: #находим текущего пользователя по ID и сохраняем в viewed_profiles ID уже просмотренных профилей других людей
+        if str(profile[0]) == str(message.from_user.id):
+            viewed_profiles = str(profile[6])
+            print(viewed_profiles)
+            
+    k = 0
+    for profile in profiles:
+            if str(profile[0]) not in viewed_profiles:
+                k = 1
+                ID = int(profile[0])
+                viewed_profiles+= f',{ID}'
+                await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};', reply_markup=ikb_look)
+                # if callback.data == 'like':
+                #     await bot.send_message(text=f'Мы рады что вас кто-то заинтересовал, вот ID этого пользователя: @{ID}')
+                # elif callback.data == 'dislike':
+                #     break
+    if k == 0:
+        await message.reply('Вы просмотрели уже все профили')
+    async with state.proxy() as data_look: 
+        data_look['viewed_profiles'] = viewed_profiles
+    await update_log_look(state, message.from_user.id)
+    print(viewed_profiles)
+    
 if __name__ == '__main__':
     executor.start_polling(dispatcher=dp, skip_updates=True, on_startup=startup)
