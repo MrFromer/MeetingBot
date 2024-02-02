@@ -6,7 +6,7 @@ from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
 import re
 from database import db_start, create_profile, save_profile, look_profile, delete_profile, edit_profile_photo_db, edit_profile_name_db, edit_profile_age_db, edit_profile_location_db, edit_profile_description_db, update_log_look
-from keyboards import kb, kb_cancel, ikb_edit, kb_return, ikb_look
+from keyboards import kb, kb_cancel, ikb_edit, ikb_look
 import tracemalloc
 
 tracemalloc.start()
@@ -244,13 +244,18 @@ async def call_edit_profile(message: types.Message):
     if k == 0: #если пользователя в БД нет
         await message.reply('Вы ещё не создали профиль, для этого напишите комманду /create')
     elif k == 1: #если пользователя в БД есть
-        await bot.send_photo(chat_id=message.from_user.id, reply_markup=kb_return, photo=profile[1],  caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')
+        await bot.send_photo(chat_id=message.from_user.id, photo=profile[1],  caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};')
         await message.reply(text='Вот ваша анкета, что конкретно вы хотите изменить? Выберите из меню ниже:',reply_markup=ikb_edit)
 
 #ф-ция для возврата в главное меню
-@dp.message_handler(text='Вернуться в главное меню') #функция будет работать в любом состоянии
-async def go_to_main_menu(message: types.Message):
-    await message.answer(text='Вы вернулись в главное меню!',reply_markup=kb)
+# @dp.message_handler(text='Вернуться в главное меню') #функция будет работать в любом состоянии
+# async def go_to_main_menu(message: types.Message):
+#     await message.answer(text='Вы вернулись в главное меню!',reply_markup=kb)
+
+@dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_return')
+async def edit_return(callback: types.CallbackQuery):
+    await bot.send_message(chat_id=callback.from_user.id, text='Вы вернулись в главное меню!', reply_markup=kb)
+    
 
 #ф-ция для возврата в главное меню через комманду
 @dp.message_handler(commands=['return'])
@@ -264,6 +269,7 @@ class Profile_edit(StatesGroup): #объекты с состояниями дл�
     age = State()
     location = State()
     desc = State()
+    
 
 #если пользователь хочет изменить фото
 @dp.callback_query_handler(lambda callback_query: callback_query.data == 'btn_photo')
@@ -371,45 +377,59 @@ async def load_location_edit(message: types.Message, state: FSMContext) -> None:
 
 
 
-############################################################################### блок для взаимодействия и просмотра чужих анкет
-#class Look(StatesGroup):
+############################################################################### блок просмотра чужих анкет и взаимодействия с ними
+class Profile_looks(StatesGroup): #объекты с состояниями для FSM (машины состояний)
+    callbackme = State()
+    giveankety = State()
     
-#ф-ция для получения текущих ID других пользователей (это текст, который преобразуем в список), которые уже просмотрены данным пользователем    
-# async def give_viewed_profiles(message: types.Message):
-#     profiles = await look_profile(message.from_user.id) #принимаем кортеж с профилями
-#     for profile in profiles: #через цикл пробегаемся по профилям и ищем нужный индификатор пользователя
-#         if int(profile[0]) == int(message.from_user.id):
-#             print(list(profile[5]))
-#             return list(profile[5])
-#     else:
-#         return []
-            
 
 @dp.message_handler(text='Смотреть анкеты')
-async def look_anketi(message: types.Message, state: FSMContext):
-    profiles = await look_profile(message.from_user.id)
-    for profile in profiles: #находим текущего пользователя по ID и сохраняем в viewed_profiles ID уже просмотренных профилей других людей
-        if str(profile[0]) == str(message.from_user.id):
-            viewed_profiles = str(profile[6])
-            print(viewed_profiles)
+async def look_anketi(message: types.Message) -> None:
+    print('Зашёл в 1')
+    await message.reply(text='Начинаем смотреть анкеты?')
+    await give_ankety(types.Message,FSMContext)
+    
+async def findporfile(iduser):
+    profiles = await look_profile(iduser)
+    for profile in profiles: #находим текущего пользователя по ID и сохраняем в "viewed_profiles" ID просмотренных профилей до этого
+        if str(profile[0]) == str(iduser):
+            return str(profile[6]) 
             
+
+@dp.message_handler()
+async def give_ankety(message: types.Message, state: FSMContext):
+    print('Зашёл во 2')
+    profiles = await look_profile(message.from_user.id)
+    viewed_profile = await findporfile(message.from_user.id)
+    global ID  
     k = 0
     for profile in profiles:
-            if str(profile[0]) not in viewed_profiles:
+            if str(profile[0]) not in viewed_profile:
                 k = 1
                 ID = int(profile[0])
-                viewed_profiles+= f',{ID}'
-                await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};', reply_markup=ikb_look)
-                # if callback.data == 'like':
-                #     await bot.send_message(text=f'Мы рады что вас кто-то заинтересовал, вот ID этого пользователя: @{ID}')
-                # elif callback.data == 'dislike':
-                #     break
+                viewed_profile+= f',{ID}'
+                await bot.send_photo(chat_id=message.from_user.id, photo=profile[1], 
+                                    caption=f'Имя: {profile[2]}; Возраст: {profile[3]}; Локация: {profile[4]};\nОписание профиля: {profile[5]};', reply_markup=ikb_look)
+                async with state.proxy() as data_look: #сохраняем просмотренный ID в бд
+                    data_look['viewed_profiles'] = viewed_profile
+                await update_log_look(state, message.from_user.id)
+                await Profile_looks.callbackme.set()
+                break
+
     if k == 0:
         await message.reply('Вы просмотрели уже все профили')
-    async with state.proxy() as data_look: 
-        data_look['viewed_profiles'] = viewed_profiles
-    await update_log_look(state, message.from_user.id)
-    print(viewed_profiles)
+        await state.finish()
+
+
+@dp.callback_query_handler(state= Profile_looks.callbackme)
+async def callback_look_anketi(callback: types.CallbackQuery):
+    print('Зашёл в 3')
     
+    if callback.data == 'writeprofile':
+        await bot.send_message(chat_id=callback.from_user.id,text=f'Мы рады что вас кто-то заинтересовал, вот ID этого пользователя: @{ID} Можете ему написать :D')
+    elif callback.data == 'nextprofile':
+        await give_ankety(types.Message,FSMContext)
+
+
 if __name__ == '__main__':
     executor.start_polling(dispatcher=dp, skip_updates=True, on_startup=startup)
